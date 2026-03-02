@@ -1,22 +1,58 @@
 # IIoT Monitoring (Simulation + Dashboard)
 
-Simple IIoT monitoring stack with:
-- FastAPI backend for telemetry ingestion and streaming
-- Python simulator that sends synthetic sensor data
-- Streamlit dashboard for live monitoring
-- Mosquitto MQTT broker via Docker
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white) ![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?logo=streamlit&logoColor=white) ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white) ![MQTT](https://img.shields.io/badge/MQTT-Mosquitto-660066?logo=eclipsemosquitto&logoColor=white)
+
+This project simulates industrial IoT devices sending telemetry (temperature, humidity, vibration) into a backend service.
+The backend exposes API + WebSocket endpoints and a Streamlit dashboard visualizes live metrics and alarm states.
+It is an end-to-end local flow from simulated devices to monitoring UI, ready to extend with MQTT ingestion and persistent storage.
+
+## Architecture (Simple)
+
+```text
+                 +---------------------------+
+                 |   Docker: Mosquitto MQTT |
+                 |   tcp://localhost:1883    |
+                 +-------------+-------------+
+                               |
+                               | (planned / optional MQTT ingest)
+                               v
++-------------------+      +-----------------------+      +----------------------+
+| Simulator (Python)| ---> | FastAPI Backend       | ---> | Streamlit Dashboard  |
+| synthetic sensors | HTTP | /v1/telemetry         | HTTP | live charts + alarms |
+| every 1s          | POST | /telemetry/latest     | JSON | localhost:8501       |
++-------------------+      | /v1/stream (WebSocket)|      +----------------------+
+                           +-----------------------+
+                                      |
+                                      v
+                           In-memory time-series buffer
+                           (latest 500 points, MVP)
+```
 
 ## Circuit Diagram
+
 ![Arduino UNO with LED, resistor, and temperature sensor circuit diagram](image.png)
 
-Circuit diagram showing an Arduino UNO microcontroller connected to a red LED with current-limiting resistor, a DHT temperature/humidity sensor (blue circular component), and a battery power source. Red and blue wires indicate signal and power connections respectively. The setup demonstrates a basic IoT sensor circuit for temperature monitoring applications.
+## Dashboard / Output Screenshot
+
+![Dashboard or output screenshot](docs/Terrific%20Gogo-Blad%20(1).png)
+
+## Protocol & Data Flow
+
+- Current ingest path: simulator sends JSON via HTTP `POST /v1/telemetry` every second.
+- Dashboard path: Streamlit polls `GET /telemetry/latest` and can consume `WS /v1/stream` for push updates.
+- MQTT path: Mosquitto is already provisioned with Docker and can be wired as an additional ingest channel.
+- Time-series storage: current MVP keeps recent telemetry in memory; a TSDB (e.g., InfluxDB/TimescaleDB) is the next step.
+- Alerts: alarm flag is computed in simulator (`temp > 35°C` or `vibration > 0.75`) and visualized in dashboard.
 
 ## Project Structure
 
 ```text
 project-1/
 ├── docker-compose.yml
+├── image.png
+├── README.md
 └── iiot-monitoring-simmk/
+    ├── requirements.txt
     ├── backend/app/main.py
     ├── dashboard/app.py
     ├── simulator/main.py
@@ -28,15 +64,15 @@ project-1/
 - Python 3.10+
 - Docker Desktop
 
-## Quick Start
+## How to Run
 
-### 1) Start Mosquitto broker
+1) Start Mosquitto with Docker Compose
 
 ```bash
 docker compose up -d
 ```
 
-### 2) Create and activate virtual environment
+2) Set up Python environment and install dependencies
 
 ```bash
 cd iiot-monitoring-simmk
@@ -45,27 +81,22 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1
 # Git Bash
 source venv/Scripts/activate
+pip install -r requirements.txt
 ```
 
-### 3) Install Python dependencies
-
-```bash
-pip install fastapi uvicorn pydantic httpx streamlit pandas requests
-```
-
-### 4) Run backend
+3) Start backend
 
 ```bash
 uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 5) Run simulator (new terminal)
+4) Start simulator (new terminal)
 
 ```bash
 python simulator/main.py
 ```
 
-### 6) Run dashboard (new terminal)
+5) Start dashboard (new terminal)
 
 ```bash
 streamlit run dashboard/app.py
@@ -77,13 +108,7 @@ streamlit run dashboard/app.py
 - Latest telemetry: `http://127.0.0.1:8000/telemetry/latest`
 - Dashboard: `http://localhost:8501`
 
-## API Endpoints
+## GitHub About (copy/paste)
 
-- `POST /v1/telemetry` - ingest telemetry payload
-- `GET /telemetry/latest?limit=200` - fetch latest samples
-- `WS /v1/stream` - websocket stream
-
-## Notes
-
-- Current backend stores latest 500 telemetry messages in memory.
-- Alarm logic in simulator turns ON when temperature > 35°C or vibration > 0.75.
+- Description: `IIoT monitoring simulation with Python, FastAPI, Streamlit, Docker, and MQTT-ready architecture.`
+- Topics: `iot`, `iiot`, `mqtt`, `fastapi`, `streamlit`, `docker`, `monitoring`, `simulation`, `telemetry`, `dashboard`

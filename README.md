@@ -108,7 +108,7 @@ streamlit run dashboard/app.py
 - Latest telemetry: `http://127.0.0.1:8000/telemetry/latest`
 - Dashboard: `http://localhost:8501`
 
-## GitHub About (copy/paste)
+## GitHub About 
 
 - Description: `IIoT monitoring simulation with Python, FastAPI, Streamlit, Docker, and MQTT-ready architecture.`
 - Topics: `iot`, `iiot`, `mqtt`, `fastapi`, `streamlit`, `docker`, `monitoring`, `simulation`, `telemetry`, `dashboard`

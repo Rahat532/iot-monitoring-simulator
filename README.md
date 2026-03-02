@@ -7,10 +7,9 @@ Simple IIoT monitoring stack with:
 - Mosquitto MQTT broker via Docker
 
 ## Circuit Diagram
+![Arduino UNO with LED, resistor, and temperature sensor circuit diagram](image.png)
 
-Add your wiring image at `docs/docs\Terrific Gogo-Blad (1).png`, then it will render below:
-
-![Arduino Wiring Diagram](docs\Terrific Gogo-Blad (1).png)
+Circuit diagram showing an Arduino UNO microcontroller connected to a red LED with current-limiting resistor, a DHT temperature/humidity sensor (blue circular component), and a battery power source. Red and blue wires indicate signal and power connections respectively. The setup demonstrates a basic IoT sensor circuit for temperature monitoring applications.
 
 ## Project Structure
 

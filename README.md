@@ -8,9 +8,9 @@ Simple IIoT monitoring stack with:
 
 ## Circuit Diagram
 
-Add your wiring image at `docs/arduino-wiring.png`, then it will render below:
+Add your wiring image at `docs/docs\Terrific Gogo-Blad (1).png`, then it will render below:
 
-![Arduino Wiring Diagram](docs/arduino-wiring.png)
+![Arduino Wiring Diagram](docs\Terrific Gogo-Blad (1).png)
 
 ## Project Structure
 

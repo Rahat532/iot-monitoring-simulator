@@ -30,6 +30,7 @@ htmlcov/
 
 # Logs
 *.log
+*.db
 
 # Editor / OS files
 .vscode/

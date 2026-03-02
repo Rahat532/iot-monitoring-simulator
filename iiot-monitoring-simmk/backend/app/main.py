@@ -1,82 +1,118 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
-from datetime import datetime, timezone
-from typing import List
-import logging
 import asyncio
+import logging
+import time
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger("backend")
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from sqlalchemy import text
+from starlette.responses import JSONResponse
 
-app = FastAPI(title="IIoT Monitoring Backend", version="0.1.0")
+from app.core.config import settings
+from app.core.db import SessionLocal, init_db
+from app.core.logging_config import configure_logging
+from app.core.metrics import REQUEST_ERRORS, REQUEST_LATENCY, metrics_response
+from app.core.request_context import request_id_var
+from app.routers.api import router as api_router
+from app.services.mqtt_consumer import MQTTConsumer
+from app.services.state import ws_manager
 
-class Telemetry(BaseModel):
-    device_id: str = Field(..., examples=["device-001"])
-    ts: datetime
-    temperature: float
-    humidity: float
-    vibration: float
-    alarm: int = Field(..., ge=0, le=1)
+configure_logging(settings.log_level)
+log = logging.getLogger(__name__)
 
-# store latest N messages (MVP)
-LATEST: List[Telemetry] = []
-MAX_STORE = 500
+mqtt_consumer: MQTTConsumer | None = None
 
-class WSManager:
-    def __init__(self):
-        self.clients: List[WebSocket] = []
 
-    async def connect(self, ws: WebSocket):
-        await ws.accept()
-        self.clients.append(ws)
-        log.info("WS connected. total=%d", len(self.clients))
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global mqtt_consumer
+    await init_db()
 
-    def disconnect(self, ws: WebSocket):
-        if ws in self.clients:
-            self.clients.remove(ws)
-        log.info("WS disconnected. total=%d", len(self.clients))
+    if settings.mqtt_enabled:
+        mqtt_consumer = MQTTConsumer(asyncio.get_running_loop())
+        mqtt_consumer.start()
+        log.info("MQTT consumer started")
 
-    async def broadcast(self, msg: dict):
-        dead = []
-        for ws in self.clients:
-            try:
-                await ws.send_json(msg)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(ws)
+    yield
 
-ws_manager = WSManager()
+    if mqtt_consumer is not None:
+        mqtt_consumer.stop()
+        log.info("MQTT consumer stopped")
+
+
+app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+app.include_router(api_router)
+
+
+@app.middleware("http")
+async def add_request_context_and_metrics(request: Request, call_next):
+    rid = request.headers.get("x-request-id", str(uuid.uuid4()))
+    request_id_var.set(rid)
+
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        REQUEST_ERRORS.labels(
+            method=request.method,
+            path=request.url.path,
+            status="500",
+        ).inc()
+        raise
+    finally:
+        request_id_var.set("-")
+
+    elapsed = time.perf_counter() - started
+    status = str(response.status_code)
+    REQUEST_LATENCY.labels(
+        method=request.method,
+        path=request.url.path,
+        status=status,
+    ).observe(elapsed)
+    if response.status_code >= 400:
+        REQUEST_ERRORS.labels(
+            method=request.method,
+            path=request.url.path,
+            status=status,
+        ).inc()
+
+    response.headers["x-request-id"] = rid
+    return response
+
 
 @app.get("/health")
-def health():
-    return {"status": "ok", "utc": datetime.now(timezone.utc).isoformat()}
+async def health() -> JSONResponse:
+    db_ok = True
+    try:
+        async with SessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception:
+        db_ok = False
 
-@app.get("/telemetry/latest")
-def latest(limit: int = 50):
-    limit = max(1, min(limit, 200))
-    return [t.model_dump() for t in LATEST[-limit:]]
-
-@app.post("/v1/telemetry")
-async def ingest(t: Telemetry):
-    LATEST.append(t)
-    if len(LATEST) > MAX_STORE:
-        del LATEST[: len(LATEST) - MAX_STORE]
-
-    log.info(
-        "ingest device=%s temp=%.2f hum=%.2f vib=%.3f alarm=%d",
-        t.device_id, t.temperature, t.humidity, t.vibration, t.alarm
+    mqtt_ok = mqtt_consumer is not None if settings.mqtt_enabled else True
+    overall = "ok" if db_ok and mqtt_ok else "degraded"
+    return JSONResponse(
+        {
+            "status": overall,
+            "db": "ok" if db_ok else "error",
+            "mqtt": "ok" if mqtt_ok else "error",
+            "utc": datetime.now(timezone.utc).isoformat(),
+        },
+        status_code=200 if overall == "ok" else 503,
     )
 
-    await ws_manager.broadcast(t.model_dump())
-    return {"ok": True}
+
+@app.get("/metrics")
+def metrics():
+    return metrics_response()
+
 
 @app.websocket("/v1/stream")
 async def stream(ws: WebSocket):
     await ws_manager.connect(ws)
     try:
         while True:
-            # keep alive, but don't require client messages
             await asyncio.sleep(30)
     except WebSocketDisconnect:
         ws_manager.disconnect(ws)

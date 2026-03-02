@@ -1,10 +1,10 @@
 # IIoT Monitoring (Simulation + Dashboard)
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white) ![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?logo=streamlit&logoColor=white) ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white) ![MQTT](https://img.shields.io/badge/MQTT-Mosquitto-660066?logo=eclipsemosquitto&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white) ![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?logo=streamlit&logoColor=white) ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white) ![MQTT](https://img.shields.io/badge/MQTT-Mosquitto-660066?logo=eclipsemosquitto&logoColor=white)
 
-This project simulates industrial IoT devices sending telemetry (temperature, humidity, vibration) into a backend service.
-The backend exposes API + WebSocket endpoints and a Streamlit dashboard visualizes live metrics and alarm states.
-It is an end-to-end local flow from simulated devices to monitoring UI, ready to extend with MQTT ingestion and persistent storage.
+This project simulates industrial devices publishing telemetry and status to MQTT with HTTP fallback.
+FastAPI ingests, validates, normalizes, stores time-series data in TimescaleDB, and streams to WebSocket clients.
+Streamlit provides live/history monitoring while Prometheus + Grafana deliver operational observability.
 
 ## Architecture (Simple)
 
@@ -14,18 +14,21 @@ It is an end-to-end local flow from simulated devices to monitoring UI, ready to
                  |   tcp://localhost:1883    |
                  +-------------+-------------+
                                |
-                               | (planned / optional MQTT ingest)
+                               | iiot/<device>/telemetry + status
                                v
-+-------------------+      +-----------------------+      +----------------------+
-| Simulator (Python)| ---> | FastAPI Backend       | ---> | Streamlit Dashboard  |
-| synthetic sensors | HTTP | /v1/telemetry         | HTTP | live charts + alarms |
-| every 1s          | POST | /telemetry/latest     | JSON | localhost:8501       |
-+-------------------+      | /v1/stream (WebSocket)|      +----------------------+
-                           +-----------------------+
-                                      |
-                                      v
-                           In-memory time-series buffer
-                           (latest 500 points, MVP)
++-------------------+      +-----------------------------+      +----------------------+
+| Simulator (Python)| ---> | FastAPI Backend             | ---> | Streamlit Dashboard  |
+| multi-device      | HTTP | REST + WS + /metrics + JSON | HTTP | live/history + alarms|
+| fault injection   | POST | /telemetry/* /alarms /devices| JSON| localhost:8501       |
++-------------------+      +---------------+-------------+      +----------------------+
+                                            |
+                                            v
+                                 +---------------------+
+                                 | TimescaleDB         |
+                                 | telemetry/alarms/dev|
+                                 +---------------------+
+
+Prometheus scrapes backend metrics; Grafana provides the operational dashboard.
 ```
 
 ## Circuit Diagram
@@ -34,45 +37,44 @@ It is an end-to-end local flow from simulated devices to monitoring UI, ready to
 
 ## Dashboard / Output Screenshot
 
-![Dashboard or output screenshot](docs/Terrific%20Gogo-Blad%20(1).png)
+![Dashboard or output screenshot](![alt text](image-2.png))
 
 ## Protocol & Data Flow
 
-- Current ingest path: simulator sends JSON via HTTP `POST /v1/telemetry` every second.
-- Dashboard path: Streamlit polls `GET /telemetry/latest` and can consume `WS /v1/stream` for push updates.
-- MQTT path: Mosquitto is already provisioned with Docker and can be wired as an additional ingest channel.
-- Time-series storage: current MVP keeps recent telemetry in memory; a TSDB (e.g., InfluxDB/TimescaleDB) is the next step.
-- Alerts: alarm flag is computed in simulator (`temp > 35°C` or `vibration > 0.75`) and visualized in dashboard.
-
-## Project Structure
-
-```text
-project-1/
-├── docker-compose.yml
-├── image.png
-├── README.md
-└── iiot-monitoring-simmk/
-    ├── requirements.txt
-    ├── backend/app/main.py
-    ├── dashboard/app.py
-    ├── simulator/main.py
-    └── mosquitto/mosquitto.conf
-```
+- Primary ingest: MQTT topics `iiot/<device_id>/telemetry` and `iiot/<device_id>/status`.
+- Fallback ingest: HTTP `POST /v1/telemetry`.
+- Query APIs: `GET /telemetry/latest`, `GET /telemetry/range`, `GET /alarms`, `GET /devices`.
+- Live streaming: WebSocket `WS /v1/stream`.
+- Persistence: TimescaleDB stores telemetry + alarms + device registry.
+- Alerts: severity and alarm status are generated by simulator fault logic and persisted.
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - Docker Desktop
 
 ## How to Run
 
-1) Start Mosquitto with Docker Compose
+1) Copy environment template
 
 ```bash
-docker compose up -d
+cp .env.example .env
 ```
 
-2) Set up Python environment and install dependencies
+2) Start full stack
+
+```bash
+docker compose up --build -d
+```
+
+3) Open services
+
+- Backend health: `http://127.0.0.1:8000/health`
+- Dashboard: `http://localhost:8501`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000` (admin/admin by default)
+
+4) Optional local dev (without Docker for app code)
 
 ```bash
 cd iiot-monitoring-simmk
@@ -82,33 +84,84 @@ python -m venv venv
 # Git Bash
 source venv/Scripts/activate
 pip install -r requirements.txt
-```
-
-3) Start backend
-
-```bash
 uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-4) Start simulator (new terminal)
-
-```bash
 python simulator/main.py
-```
-
-5) Start dashboard (new terminal)
-
-```bash
 streamlit run dashboard/app.py
 ```
+
+### Local Run (PowerShell, no Docker)
+
+Use three PowerShell terminals.
+
+Terminal 1 (Backend):
+
+```powershell
+cd D:\ICT\project-1
+.\.venv\Scripts\Activate.ps1
+pip install -r .\iiot-monitoring-simmk\requirements.txt
+cd .\iiot-monitoring-simmk\backend
+$env:DATABASE_URL = "sqlite+aiosqlite:///../iiot_local.db"
+$env:MQTT_ENABLED = "false"
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Terminal 2 (Simulator):
+
+```powershell
+cd D:\ICT\project-1
+.\.venv\Scripts\Activate.ps1
+cd .\iiot-monitoring-simmk
+$env:BACKEND_URL = "http://127.0.0.1:8000/v1/telemetry"
+$env:MQTT_ENABLED = "false"
+$env:HTTP_FALLBACK = "true"
+python .\simulator\main.py
+```
+
+Terminal 3 (Dashboard):
+
+```powershell
+cd D:\ICT\project-1
+.\.venv\Scripts\Activate.ps1
+cd .\iiot-monitoring-simmk\dashboard
+python -m streamlit run app.py --server.address 0.0.0.0 --server.port 8501
+```
+
+Important: in terminals, copy only raw commands. Do not paste Markdown-style text like `[app.py](...)`.
 
 ## Service URLs
 
 - Backend health: `http://127.0.0.1:8000/health`
 - Latest telemetry: `http://127.0.0.1:8000/telemetry/latest`
+- Telemetry range: `http://127.0.0.1:8000/telemetry/range`
+- Alarms: `http://127.0.0.1:8000/alarms`
+- Devices: `http://127.0.0.1:8000/devices`
+- Metrics: `http://127.0.0.1:8000/metrics`
 - Dashboard: `http://localhost:8501`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000`
 
-## GitHub About 
+## How to Verify
 
-- Description: `IIoT monitoring simulation with Python, FastAPI, Streamlit, Docker, and MQTT-ready architecture.`
-- Topics: `iot`, `iiot`, `mqtt`, `fastapi`, `streamlit`, `docker`, `monitoring`, `simulation`, `telemetry`, `dashboard`
+```bash
+curl http://localhost:8000/health
+curl "http://localhost:8000/telemetry/latest?limit=10"
+curl "http://localhost:8000/devices"
+curl http://localhost:8000/metrics
+```
+
+Expected:
+- `/health` returns `ok` or `degraded` with DB/MQTT component status.
+- `/telemetry/latest` and `/devices` return multi-device records once simulator runs.
+- `/metrics` exposes Prometheus metrics prefixed with `iiot_`.
+
+## GitHub About (copy/paste)
+
+- Description: `Production-oriented IIoT monitoring platform with MQTT + REST ingest, TimescaleDB persistence, FastAPI streaming APIs, Streamlit dashboard, and Prometheus/Grafana observability.`
+- Topics: `iot`, `iiot`, `mqtt`, `fastapi`, `streamlit`, `docker`, `monitoring`, `simulation`, `timescaledb`, `prometheus`, `grafana`, `websocket`, `telemetry`, `devops`
+
+## Operations Docs
+
+- Architecture: `docs/ARCHITECTURE.md`
+- Runbook: `docs/RUNBOOK.md`
+- Monitoring guide: `docs/MONITORING.md`
+- Data model: `docs/DATA_MODEL.md`

@@ -1,0 +1,70 @@
+{
+  "id": null,
+  "uid": "iiot-overview",
+  "title": "IIoT Platform Overview",
+  "tags": ["iiot", "monitoring"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Ingested Messages / sec",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(iiot_ingested_messages_total[1m]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "HTTP 5xx Errors / sec",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(iiot_request_errors_total{status=~\"5..\"}[1m]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "WebSocket Clients",
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "iiot_websocket_connected_clients",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "MQTT Reconnects",
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 8},
+      "targets": [
+        {
+          "expr": "iiot_mqtt_reconnects_total",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request Latency (p95)",
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(iiot_request_latency_seconds_bucket[5m])) by (le))",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}
